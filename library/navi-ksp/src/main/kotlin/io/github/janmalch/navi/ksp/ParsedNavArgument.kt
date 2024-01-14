@@ -24,6 +24,11 @@ class ParsedNavArgument private constructor(
     val varNameInCode: String = "__ARG_NAME__$name"
 
     /**
+     * Is `true` if and only if this argument is used in the query parameter place.
+     */
+    val isQueryParam: Boolean = navType.isArray || isMarkedNullable
+
+    /**
      * Internal enum type that resembles Android's `NavType`s.
      */
     enum class Type(
@@ -60,6 +65,12 @@ class ParsedNavArgument private constructor(
         }
     }
 }
+
+val ParsedNavArgument.isList: Boolean
+    // TODO: improve implementation (isAssignableFrom)
+    get() = requireNotNull(resolvedType.declaration.qualifiedName?.asString()) {
+    "Unable to infer NavType for property for unknown reasons."
+} == List::class.qualifiedName
 
 /**
  * Android's equivalent for this internal NavType representation,

@@ -2,6 +2,8 @@ package io.github.janmalch.navi.ksp.generator
 
 import com.google.devtools.ksp.processing.CodeGenerator
 import com.squareup.kotlinpoet.AnnotationSpec
+import com.squareup.kotlinpoet.ClassName
+import com.squareup.kotlinpoet.CodeBlock
 import com.squareup.kotlinpoet.FileSpec
 import com.squareup.kotlinpoet.FunSpec
 import com.squareup.kotlinpoet.KModifier
@@ -9,6 +11,7 @@ import com.squareup.kotlinpoet.LambdaTypeName
 import com.squareup.kotlinpoet.ParameterSpec
 import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
 import com.squareup.kotlinpoet.PropertySpec
+import com.squareup.kotlinpoet.TypeSpec
 import com.squareup.kotlinpoet.UNIT
 import com.squareup.kotlinpoet.asClassName
 import com.squareup.kotlinpoet.buildCodeBlock
@@ -19,6 +22,7 @@ import io.github.janmalch.navi.ksp.NAV_CONTROLLER_FQN
 import io.github.janmalch.navi.ksp.NAV_GRAPH_BUILDER_COMPOSABLE_FQN
 import io.github.janmalch.navi.ksp.NAV_GRAPH_BUILDER_FQN
 import io.github.janmalch.navi.ksp.NaviVisitor
+import io.github.janmalch.navi.ksp.ParsedNavArgument
 import io.github.janmalch.navi.ksp.animatedContentScopeClass
 import io.github.janmalch.navi.ksp.animatedContentTransitionScopeWithNavBackStackEntryGenericClass
 import io.github.janmalch.navi.ksp.bundleClass
@@ -36,10 +40,10 @@ import io.github.janmalch.navi.ksp.nullableNavOptionsClass
 import io.github.janmalch.navi.ksp.plusAssign
 import io.github.janmalch.navi.ksp.savedStateHandleClass
 
-private const val PATH_VAR_NAME = "__PATH"
+private const val PATH_PRIVATE_VAR_NAME = "__PATH"
+private const val PATH_PUBLIC_GETTER_NAME = "path"
 private const val ROUTE_PRIVATE_VAR_NAME = "__ROUTE"
 private const val ROUTE_PUBLIC_GETTER_NAME = "route"
-
 
 class GeneratorVisitor(
     private val codeGenerator: CodeGenerator,
@@ -69,6 +73,7 @@ class GeneratorVisitor(
                 "NavGraphBuilder",
                 "NavOptions",
                 "navArgument",
+                "NavType",
             )
             .addImport("androidx.navigation.compose", "composable")
             .also(::writeConstants)
@@ -80,34 +85,71 @@ class GeneratorVisitor(
     }
 
     internal fun writeArgParsers(builder: FileSpec.Builder) {
-        if (screenArgs.toList().isEmpty()) return
+        if (screenArgs.isEmpty()) return
 
         builder += FunSpec.builder("argsFrom")
-            .addKdoc("%L", "Creates a new instance for the screen's arguments, based on the given [bundle].")
+            .addKdoc(
+                "%L",
+                """
+                    Creates a new instance for the screen's arguments, based on the given [bundle].
+                    
+                    @throws IllegalArgumentException if the required arguments are missing 
+                    @author Auto-generated with Navi
+                """.trimIndent()
+            )
             .receiver(screenClassAsReceiver)
             .addParameter("bundle", bundleClass)
             .returns(screenArgClass.asType(emptyList()).toTypeName())
             .addCode(buildCodeBlock {
-                addStatement("%L", "TODO()") // FIXME
+                add("return %L(\n", screenArgClass.fqn)
+                withIndent {
+                    screenArgs.forEach { arg ->
+                        add("%L = ", arg.name)
+                        add(BundleFactory.getCode(arg))
+                        addStatement(",")
+                    }
+                }
+                add("\n)")
             })
             .build()
 
         builder += FunSpec.builder("argsFrom")
-            .addKdoc("%L", "Creates a new instance for the screen's arguments, based on the given [savedStateHandle].")
+            .addKdoc(
+                "%L",
+                """
+                    Creates a new instance for the screen's arguments, based on the given [savedStateHandle].
+                    
+                    @throws IllegalArgumentException if the required arguments are missing
+                    @author Auto-generated with Navi
+                """.trimIndent()
+            )
             .receiver(screenClassAsReceiver)
             .addParameter("savedStateHandle", savedStateHandleClass)
             .returns(screenArgClass.asType(emptyList()).toTypeName())
             .addCode(buildCodeBlock {
-                addStatement("%L", "TODO()") // FIXME
+                add("return %L(\n", screenArgClass.fqn)
+                withIndent {
+                    screenArgs.forEach { arg ->
+                        add("%L = ", arg.name)
+                        add(SavedStateHandleFactory.getCode(arg))
+                        addStatement(",")
+                    }
+                }
+                add(")")
             })
             .build()
 
         builder += FunSpec.builder("argsFrom")
-            .addKdoc("%L", """
-                Creates a new instance for the screen's arguments, based on the given [navBackStackEntry]'s `arguments`, if available.
-                
-                @see ${navBackStackEntryClass.canonicalName}.arguments
-            """.trimIndent())
+            .addKdoc(
+                "%L",
+                """
+                    Creates a new instance for the screen's arguments, based on the given [navBackStackEntry]'s `arguments`, if available.
+                    
+                    @throws IllegalArgumentException if the required arguments are missing
+                    @see ${navBackStackEntryClass.canonicalName}.arguments
+                    @author Auto-generated with Navi
+                """.trimIndent()
+            )
             .receiver(screenClassAsReceiver)
             .addParameter("navBackStackEntry", navBackStackEntryClass)
             .returns(screenArgClass.asType(emptyList()).toTypeName().copy(nullable = true))
@@ -118,17 +160,36 @@ class GeneratorVisitor(
     internal fun writeConstants(builder: FileSpec.Builder) {
         // add base path to file
         builder += PropertySpec.builder(
-            PATH_VAR_NAME, String::class, KModifier.PRIVATE, KModifier.CONST
+            PATH_PRIVATE_VAR_NAME, String::class, KModifier.PRIVATE, KModifier.CONST
         ).initializer("%S", screenPath)
             .addKdoc(
                 "%L", """
                           The path defined by the [${screenClass.fqn}] class: `"$screenPath"`.
                           Base for building the [$screenClass.fqn.route].
+                          
+                          @see ${screenClass.fqn}.route
                           @see io.github.janmalch.navi.Screen.path
                           @author Auto-generated with Navi
                       """.trimIndent()
             )
             .build()
+        // public getter for path
+        builder += PropertySpec.builder(PATH_PUBLIC_GETTER_NAME, String::class)
+            .receiver(screenClassAsReceiver)
+            .getter(
+                FunSpec.getterBuilder()
+                    .addStatement("return %L", PATH_PRIVATE_VAR_NAME)
+                    .build()
+            ).addKdoc(
+                "%L", """
+                        This screen's path: `"$screenPath"`
+                        
+                        @see ${screenClass.fqn}.$ROUTE_PUBLIC_GETTER_NAME
+                        @see $NAV_GRAPH_BUILDER_FQN.$navGraphBuilderExtFunName
+                        @author Auto-generated with Navi
+                        """.trimIndent()
+            ).build()
+
 
         // add args to file
         screenArgs.forEach { arg ->
@@ -139,6 +200,7 @@ class GeneratorVisitor(
                     .addKdoc(
                         "%L", """
                                 The name of the argument mapping to the [${arg.prop.fqn}] property: `"${arg.name}"`.
+                                
                                 @see io.github.janmalch.navi.Screen.args
                                 @author Auto-generated with Navi
                             """.trimIndent()
@@ -148,11 +210,10 @@ class GeneratorVisitor(
         }
 
         // add private val for route pattern
-        val routeValue = screenPath // FIXME: build with args
         builder += PropertySpec.builder(
             ROUTE_PRIVATE_VAR_NAME, String::class, KModifier.PRIVATE, KModifier.CONST
         )
-            .initializer("%S", routeValue)
+            .initializer("%L", '"' + screenRoute + '"')
             .build()
 
         // add public getter for route pattern
@@ -164,8 +225,9 @@ class GeneratorVisitor(
                     .build()
             ).addKdoc(
                 "%L", """
-                        This screen's route pattern: `"$routeValue"`
+                        This screen's route pattern: `"$screenRoutePretty"`
                         
+                        @see ${screenClass.fqn}.$PATH_PUBLIC_GETTER_NAME
                         @see $NAV_GRAPH_BUILDER_FQN.$navGraphBuilderExtFunName
                         @author Auto-generated with Navi
                         """.trimIndent()
@@ -177,7 +239,16 @@ class GeneratorVisitor(
             return FunSpec.builder(funName)
                 .receiver(navControllerClass)
                 .addKdoc("%L", kdoc)
-                // FIXME: build with args
+                .apply {
+                    if (screenArgs.isNotEmpty()) {
+                        addParameter(
+                            ParameterSpec.builder(
+                                "args",
+                                screenArgClass.asStarProjectedType().toTypeName()
+                            ).build()
+                        )
+                    }
+                }
                 .addParameter(
                     ParameterSpec.builder("navOptions", nullableNavOptionsClass)
                         .defaultValue("null")
@@ -189,7 +260,16 @@ class GeneratorVisitor(
             return FunSpec.builder(funName)
                 .receiver(navControllerClass)
                 .addKdoc("%L", kdoc)
-                // FIXME: build with args
+                .apply {
+                    if (screenArgs.isNotEmpty()) {
+                        addParameter(
+                            ParameterSpec.builder(
+                                "args",
+                                screenArgClass.asStarProjectedType().toTypeName()
+                            ).build()
+                        )
+                    }
+                }
                 .addParameter(
                     "builder",
                     LambdaTypeName.get(
@@ -199,8 +279,10 @@ class GeneratorVisitor(
                 )
         }
 
-        val funName = "$funNamePrefix$screenObjectName$funNameSuffix".trim().replaceFirstChar(Char::lowercaseChar)
-        val tryFunName = "$tryFunNamePrefix$screenObjectName$tryFunNameSuffix".trim().replaceFirstChar(Char::lowercaseChar)
+        val funName = "$funNamePrefix$screenObjectName$funNameSuffix".trim()
+            .replaceFirstChar(Char::lowercaseChar)
+        val tryFunName = "$tryFunNamePrefix$screenObjectName$tryFunNameSuffix".trim()
+            .replaceFirstChar(Char::lowercaseChar)
 
         val kdoc = """
             Navigates to the destination defined by the [${screenClass.fqn}].
@@ -212,17 +294,85 @@ class GeneratorVisitor(
             @author Auto-generated with Navi
         """.trimIndent()
 
+        val navStringVarName: String
+        val codeThatBuildsNavString: CodeBlock
+
+        if (screenArgs.isEmpty()) {
+            navStringVarName = PATH_PRIVATE_VAR_NAME
+            codeThatBuildsNavString = buildCodeBlock {  }
+        } else {
+            navStringVarName = "sb.toString()"
+            codeThatBuildsNavString   = buildCodeBlock {
+                addStatement("val sb = buildString {")
+
+                withIndent {
+                    addStatement("append(%L)", PATH_PRIVATE_VAR_NAME)
+
+
+                    val (queryParams, pathParams) = screenArgs.partition(ParsedNavArgument::isQueryParam)
+
+                    if (pathParams.isNotEmpty()) {
+                        addStatement("if (!endsWith('/')) append('/')")
+                        pathParams.forEachIndexed { idx, pp ->
+                            addStatement("append(args.%L.toString())", pp.name)
+                            if (idx < pathParams.lastIndex) {
+                                addStatement("append('/')")
+                            }
+                        }
+                    }
+
+                    if (queryParams.isNotEmpty()) {
+                        addStatement("append('?')")
+                        queryParams.forEachIndexed { idx, qp ->
+                            if (qp.isMarkedNullable) {
+                                addStatement("if (args.%L != null) {", qp.name)
+                                indent()
+                            }
+                            if (qp.navType.isArray) {
+                                addStatement("args.%L.forEachIndexed { idx, av -> ", qp.name)
+                                withIndent {
+                                    addStatement("append(%L)", qp.varNameInCode)
+                                    addStatement("append('=')")
+                                    addStatement("append(%L)", "av")
+                                    addStatement("if (idx < args.%L.lastIndex) append('&')", qp.name)
+                                }
+                                addStatement("}")
+                            } else {
+                                addStatement("append(%L)", qp.varNameInCode)
+                                addStatement("append('=')")
+                                addStatement("append(args.%L.toString())", qp.name)
+                            }
+
+                            if (idx < queryParams.lastIndex) {
+                                addStatement("append('&')")
+                            }
+                            if (qp.isMarkedNullable) {
+                                unindent()
+                                addStatement("}", qp.name)
+                            }
+                        }
+
+                        addStatement("if (endsWith('&')) deleteCharAt(lastIndex)")
+                        addStatement("if (endsWith('?')) deleteCharAt(lastIndex)")
+                    }
+                }
+
+                addStatement("}")
+            }
+        }
+
+
         builder += withOptions(funName, kdoc)
+            .addCode(codeThatBuildsNavString)
             .addStatement(
-                // FIXME: build with args
-                "this.navigate(%L, navOptions)", ROUTE_PRIVATE_VAR_NAME
+                "this.navigate(%L, navOptions)", navStringVarName
             )
             .build()
 
         builder += withBuilder(funName, kdoc)
+            .addCode(codeThatBuildsNavString)
             .addStatement(
-                // FIXME: build with args
-                "this.navigate(%L, builder)", ROUTE_PRIVATE_VAR_NAME
+                "this.navigate(%L, builder)", navStringVarName
             )
             .build()
 
@@ -245,10 +395,10 @@ class GeneratorVisitor(
             .addCode(buildCodeBlock {
                 addStatement("try {")
                 withIndent {
+                    add(codeThatBuildsNavString)
                     addStatement(
-                    // FIXME: build with args
-                    "this.navigate(%L, navOptions)", ROUTE_PRIVATE_VAR_NAME
-                )
+                        "this.navigate(%L, navOptions)", navStringVarName
+                    )
                     addStatement("return true")
                 }
                 addStatement("} catch (e: IllegalArgumentException) {")
@@ -264,9 +414,9 @@ class GeneratorVisitor(
             .addCode(buildCodeBlock {
                 addStatement("try {")
                 withIndent {
+                    add(codeThatBuildsNavString)
                     addStatement(
-                        // FIXME: build with args
-                        "this.navigate(%L, builder)", ROUTE_PRIVATE_VAR_NAME
+                        "this.navigate(%L, builder)", navStringVarName
                     )
                     addStatement("return true")
                 }
@@ -281,6 +431,8 @@ class GeneratorVisitor(
     }
 
     internal fun writeNavGraphBuilderExt(builder: FileSpec.Builder) {
+        if (skipNavGraphBuilderExt) return
+
         builder += FunSpec.builder(navGraphBuilderExtFunName)
             .receiver(navGraphBuilderClass)
             .addParameter(
@@ -330,10 +482,28 @@ class GeneratorVisitor(
                     addStatement("popExitTransition = popExitTransition,")
                     addStatement("arguments = listOf(")
                     withIndent {
-                        // FIXME
-                        // argumentsListItemCode.forEach {
-                        //     add(it.addStatement(",").build())
-                        // }
+                        screenArgs.forEach { arg ->
+                            add("navArgument(%L) {\n", arg.varNameInCode)
+                            withIndent {
+                                addStatement(
+                                    "type = %L", when (arg.navType) {
+                                        ParsedNavArgument.Type.String -> "NavType.StringType"
+                                        ParsedNavArgument.Type.StringArray -> "NavType.StringArrayType"
+                                        ParsedNavArgument.Type.Bool -> "NavType.BoolType"
+                                        ParsedNavArgument.Type.BoolArray -> "NavType.BoolArrayType"
+                                        ParsedNavArgument.Type.Int -> "NavType.IntType"
+                                        ParsedNavArgument.Type.IntArray -> "NavType.IntArrayType"
+                                        ParsedNavArgument.Type.Float -> "NavType.FloatType"
+                                        ParsedNavArgument.Type.FloatArray -> "NavType.FloatArrayType"
+                                        ParsedNavArgument.Type.Long -> "NavType.LongType"
+                                        ParsedNavArgument.Type.LongArray -> "NavType.LongArrayType"
+                                    }
+                                )
+                                addStatement("nullable = %L", arg.isMarkedNullable)
+                                // TODO: add support for default values via annotation on props
+                            }
+                            add("},\n")
+                        }
                     }
                     addStatement("),")
                     addStatement("content = content,")
@@ -352,7 +522,11 @@ class GeneratorVisitor(
     }
 }
 
-private fun buildTransitionParameter(name: String, enter: Boolean, defaultValue: String): ParameterSpec {
+private fun buildTransitionParameter(
+    name: String,
+    enter: Boolean,
+    defaultValue: String
+): ParameterSpec {
     return ParameterSpec.builder(
         name,
         LambdaTypeName.get(

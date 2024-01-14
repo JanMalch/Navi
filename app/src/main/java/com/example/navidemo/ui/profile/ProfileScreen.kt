@@ -12,5 +12,4 @@ object ProfileScreen {
         val name: String?,
         val bar: List<Int>,
     )
-    // FIXME: generate extension function "argsFrom" for Bundle, BackStackEntry, SavedStateHandle..
 }

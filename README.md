@@ -20,7 +20,8 @@ object WelcomeScreen
 Navi will automatically generate the following code for you:
 
 ```kotlin
-val WelcomeScreen.route: String
+val WelcomeScreen.path: String                 // the simple path, as specified in annotation
+val WelcomeScreen.route: String                // the complex pattern with arguments
 fun NavGraphBuilder.welcomeScreen(/*...*/)     // to setup the composable
 fun NavController.navigateToWelcomeScreen()    // to navigate
 fun NavController.tryNavigateToWelcomeScreen() // to navigate without risk of crashes

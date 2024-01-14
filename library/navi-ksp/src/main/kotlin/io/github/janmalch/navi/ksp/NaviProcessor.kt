@@ -1,5 +1,6 @@
 package io.github.janmalch.navi.ksp
 
+import com.google.devtools.ksp.isAnnotationPresent
 import com.google.devtools.ksp.processing.CodeGenerator
 import com.google.devtools.ksp.processing.KSPLogger
 import com.google.devtools.ksp.processing.Resolver
@@ -14,6 +15,7 @@ import com.google.devtools.ksp.symbol.KSType
 import com.google.devtools.ksp.symbol.KSVisitorVoid
 import com.squareup.kotlinpoet.ksp.toTypeName
 import io.github.janmalch.navi.ksp.generator.GeneratorVisitor
+import kotlin.properties.Delegates
 
 class NaviProcessor(
     private val codeGenerator: CodeGenerator,
@@ -45,7 +47,7 @@ class NaviProcessor(
 
     inner class LogVisitor : NaviVisitor() {
         override fun handle() {
-            logger.info(message = "- \"$screenPath\" -> $screenClass")
+            logger.info(message = "- $screenClass -> \"$screenRoutePretty\"")
         }
     }
 }
@@ -54,8 +56,11 @@ abstract class NaviVisitor : KSVisitorVoid() {
 
     protected lateinit var screenClass: KSClassDeclaration
     protected lateinit var screenPath: String
+    protected lateinit var screenRoute: String
+    protected lateinit var screenRoutePretty: String
     protected lateinit var screenArgClass: KSClassDeclaration
-    protected lateinit var screenArgs: Sequence<ParsedNavArgument>
+    protected lateinit var screenArgs: List<ParsedNavArgument>
+    protected var skipNavGraphBuilderExt by Delegates.notNull<Boolean>()
 
     protected val packageName by lazy { screenClass.packageName.asString() }
     protected val screenObjectName by lazy { screenClass.simpleName.asString() }
@@ -82,16 +87,46 @@ abstract class NaviVisitor : KSVisitorVoid() {
         val pathArg = annotation.arguments.first { it.name?.asString() == "path" }
         screenPath =
             requireNotNull(pathArg.value?.toString()) { "'path' argument must be present in @Screen annotation." }
-        val argsArg = annotation.arguments.first { it.name?.asString() == "args" }
 
+        val argsArg = annotation.arguments.first { it.name?.asString() == "args" }
         screenArgClass =
             (requireNotNull(argsArg.value as? KSType) { "'args' argument must be present in @Screen annotation. Can default to 'Unit::class'." })
                 .declaration as KSClassDeclaration
         screenArgs = screenArgClass.getAllProperties()
             .map(ParsedNavArgument::of)
+            .toList()
+
+        val skipNavGraphBuilderExtArg = annotation.arguments.first { it.name?.asString() == "skipNavGraphBuilderExt" }
+        skipNavGraphBuilderExt =
+            (requireNotNull(skipNavGraphBuilderExtArg.value as? Boolean) { "'skipNavGraphBuilderExtArg' argument must be present in @Screen annotation. Can default to 'false'." })
+
+        screenRoute = determineRoute(screenPath, screenArgs)
+        screenRoutePretty = determineRoute(screenPath, screenArgs) { it.name }
     }
 
     protected abstract fun handle()
+}
+
+internal fun determineRoute(path: String, screenArgs: List<ParsedNavArgument>, name: (ParsedNavArgument) -> String = { '$' + it.varNameInCode }): String {
+    if (screenArgs.isEmpty()) return path
+
+    val (queryParams, pathParams) = screenArgs.partition(ParsedNavArgument::isQueryParam)
+
+    return StringBuilder(path).apply {
+        if (pathParams.isNotEmpty()) {
+            if (!path.endsWith('/')) {
+                append('/')
+            }
+            append(pathParams.joinToString("/") { '{' + name(it) + '}' })
+        }
+
+        if (queryParams.isNotEmpty()) {
+            append('?')
+            append(queryParams.joinToString("&") {
+                name(it) + "={" + name(it) + '}'
+            })
+        }
+    }.toString()
 }
 
 class NaviProcessorProvider : SymbolProcessorProvider {
