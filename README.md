@@ -1,5 +1,7 @@
 # Navi <img src="/.idea/icon.png" width="90" height="90" align="right">
 
+[![Release](https://jitpack.io/v/JanMalch/navi.svg)](https://jitpack.io/#JanMalch/navi)
+
 _Android library to reduce boilerplate code for official Compose navigation._
 
 ## Who is this for?
@@ -60,13 +62,23 @@ See the [demo app](./app/src/main/java/com/example/navidemo) for a full example.
 
 ## Installation
 
+Navi is loaded from jitpack:
+
+```kotlin
+repositories {
+    maven {
+        url = uri("https://jitpack.io")
+    }
+}
+```
+
 Add the two dependencies to your app's `build.gradle.kts` file.
 Optionally, you may configure some behaviour of Navi.
 
 ```kotlin
 dependencies {
-    implementation("io.github.janmalch:navi-runtime:$navi_version")
-    ksp("io.github.janmalch:navi-ksp:$navi_version")
+    implementation("com.github.JanMalch.navi:navi-runtime:$navi_version")
+    ksp("com.github.JanMalch.navi:navi-ksp:$navi_version")
 }
 
 // optional, displayed values are defaults

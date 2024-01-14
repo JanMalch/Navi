@@ -15,5 +15,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "Navi"
 include(":app")
-include(":library:navi-ksp")
-include(":library:navi-runtime")
+include(":navi-ksp")
+include(":navi-runtime")

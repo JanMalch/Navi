@@ -70,8 +70,8 @@ dependencies {
 
 
     implementation("androidx.navigation:navigation-compose:2.7.6")
-    implementation(project(":library:navi-runtime"))
-    ksp(project(":library:navi-ksp"))
+    implementation(project(":navi-runtime"))
+    ksp(project(":navi-ksp"))
 }
 
 ksp {

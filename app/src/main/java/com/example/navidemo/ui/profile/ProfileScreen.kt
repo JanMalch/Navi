@@ -1,6 +1,6 @@
 package com.example.navidemo.ui.profile
 
-import io.github.janmalch.navi.Screen
+import com.github.janmalch.navi.Screen
 
 @Screen(
     path = "profile",
